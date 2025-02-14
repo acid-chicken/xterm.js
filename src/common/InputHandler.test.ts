@@ -5,18 +5,19 @@
 
 import { assert } from 'chai';
 import { InputHandler } from 'common/InputHandler';
-import { IBufferLine, IAttributeData, IColorEvent, ColorIndex, ColorRequestType } from 'common/Types';
+import { IBufferLine, IAttributeData, IColorEvent, ColorRequestType, SpecialColorIndex } from 'common/Types';
 import { DEFAULT_ATTR_DATA } from 'common/buffer/BufferLine';
 import { CellData } from 'common/buffer/CellData';
-import { Attributes, UnderlineStyle } from 'common/buffer/Constants';
-import { AttributeData } from 'common/buffer/AttributeData';
+import { Attributes, BgFlags, UnderlineStyle } from 'common/buffer/Constants';
+import { AttributeData, ExtendedAttrs } from 'common/buffer/AttributeData';
 import { Params } from 'common/parser/Params';
-import { MockCoreService, MockBufferService, MockDirtyRowService, MockOptionsService, MockLogService, MockCoreMouseService, MockCharsetService, MockUnicodeService, MockOscLinkService } from 'common/TestUtils.test';
-import { IBufferService, ICoreService } from 'common/services/Services';
+import { MockCoreService, MockBufferService, MockOptionsService, MockLogService, MockCoreMouseService, MockCharsetService, MockUnicodeService, MockOscLinkService } from 'common/TestUtils.test';
+import { IBufferService, ICoreService, type IOscLinkService } from 'common/services/Services';
 import { DEFAULT_OPTIONS } from 'common/services/OptionsService';
 import { clone } from 'common/Clone';
 import { BufferService } from 'common/services/BufferService';
 import { CoreService } from 'common/services/CoreService';
+import { OscLinkService } from 'common/services/OscLinkService';
 
 
 function getCursor(bufferService: IBufferService): number[] {
@@ -59,15 +60,17 @@ describe('InputHandler', () => {
   let bufferService: IBufferService;
   let coreService: ICoreService;
   let optionsService: MockOptionsService;
+  let oscLinkService: IOscLinkService;
   let inputHandler: TestInputHandler;
 
   beforeEach(() => {
     optionsService = new MockOptionsService();
     bufferService = new BufferService(optionsService);
     bufferService.resize(80, 30);
-    coreService = new CoreService(() => { }, bufferService, new MockLogService(), optionsService);
+    coreService = new CoreService(bufferService, new MockLogService(), optionsService);
+    oscLinkService = new OscLinkService(bufferService);
 
-    inputHandler = new TestInputHandler(bufferService, new MockCharsetService(), coreService, new MockDirtyRowService(), new MockLogService(), optionsService, new MockOscLinkService(), new MockCoreMouseService(), new MockUnicodeService());
+    inputHandler = new TestInputHandler(bufferService, new MockCharsetService(), coreService, new MockLogService(), optionsService, oscLinkService, new MockCoreMouseService(), new MockUnicodeService());
   });
 
   describe('SL/SR/DECIC/DECDC', () => {
@@ -199,44 +202,44 @@ describe('InputHandler', () => {
   describe('setCursorStyle', () => {
     it('should call Terminal.setOption with correct params', () => {
       inputHandler.setCursorStyle(Params.fromArray([0]));
-      assert.equal(optionsService.options['cursorStyle'], 'block');
-      assert.equal(optionsService.options['cursorBlink'], true);
+      assert.equal(coreService.decPrivateModes.cursorStyle, undefined);
+      assert.equal(coreService.decPrivateModes.cursorBlink, undefined);
 
       optionsService.options = clone(DEFAULT_OPTIONS);
       inputHandler.setCursorStyle(Params.fromArray([1]));
-      assert.equal(optionsService.options['cursorStyle'], 'block');
-      assert.equal(optionsService.options['cursorBlink'], true);
+      assert.equal(coreService.decPrivateModes.cursorStyle, 'block');
+      assert.equal(coreService.decPrivateModes.cursorBlink, true);
 
       optionsService.options = clone(DEFAULT_OPTIONS);
       inputHandler.setCursorStyle(Params.fromArray([2]));
-      assert.equal(optionsService.options['cursorStyle'], 'block');
-      assert.equal(optionsService.options['cursorBlink'], false);
+      assert.equal(coreService.decPrivateModes.cursorStyle, 'block');
+      assert.equal(coreService.decPrivateModes.cursorBlink, false);
 
       optionsService.options = clone(DEFAULT_OPTIONS);
       inputHandler.setCursorStyle(Params.fromArray([3]));
-      assert.equal(optionsService.options['cursorStyle'], 'underline');
-      assert.equal(optionsService.options['cursorBlink'], true);
+      assert.equal(coreService.decPrivateModes.cursorStyle, 'underline');
+      assert.equal(coreService.decPrivateModes.cursorBlink, true);
 
       optionsService.options = clone(DEFAULT_OPTIONS);
       inputHandler.setCursorStyle(Params.fromArray([4]));
-      assert.equal(optionsService.options['cursorStyle'], 'underline');
-      assert.equal(optionsService.options['cursorBlink'], false);
+      assert.equal(coreService.decPrivateModes.cursorStyle, 'underline');
+      assert.equal(coreService.decPrivateModes.cursorBlink, false);
 
       optionsService.options = clone(DEFAULT_OPTIONS);
       inputHandler.setCursorStyle(Params.fromArray([5]));
-      assert.equal(optionsService.options['cursorStyle'], 'bar');
-      assert.equal(optionsService.options['cursorBlink'], true);
+      assert.equal(coreService.decPrivateModes.cursorStyle, 'bar');
+      assert.equal(coreService.decPrivateModes.cursorBlink, true);
 
       optionsService.options = clone(DEFAULT_OPTIONS);
       inputHandler.setCursorStyle(Params.fromArray([6]));
-      assert.equal(optionsService.options['cursorStyle'], 'bar');
-      assert.equal(optionsService.options['cursorBlink'], false);
+      assert.equal(coreService.decPrivateModes.cursorStyle, 'bar');
+      assert.equal(coreService.decPrivateModes.cursorBlink, false);
     });
   });
   describe('setMode', () => {
     it('should toggle bracketedPasteMode', () => {
       const coreService = new MockCoreService();
-      const inputHandler = new TestInputHandler(new MockBufferService(80, 30), new MockCharsetService(), coreService, new MockDirtyRowService(), new MockLogService(), new MockOptionsService(), new MockOscLinkService(), new MockCoreMouseService(), new MockUnicodeService());
+      const inputHandler = new TestInputHandler(new MockBufferService(80, 30), new MockCharsetService(), coreService, new MockLogService(), new MockOptionsService(), new MockOscLinkService(), new MockCoreMouseService(), new MockUnicodeService());
       // Set bracketed paste mode
       inputHandler.setModePrivate(Params.fromArray([2004]));
       assert.equal(coreService.decPrivateModes.bracketedPasteMode, true);
@@ -258,7 +261,6 @@ describe('InputHandler', () => {
         bufferService,
         new MockCharsetService(),
         new MockCoreService(),
-        new MockDirtyRowService(),
         new MockLogService(),
         new MockOptionsService(),
         new MockOscLinkService(),
@@ -305,7 +307,6 @@ describe('InputHandler', () => {
         bufferService,
         new MockCharsetService(),
         new MockCoreService(),
-        new MockDirtyRowService(),
         new MockLogService(),
         new MockOptionsService(),
         new MockOscLinkService(),
@@ -356,7 +357,6 @@ describe('InputHandler', () => {
         bufferService,
         new MockCharsetService(),
         new MockCoreService(),
-        new MockDirtyRowService(),
         new MockLogService(),
         new MockOptionsService(),
         new MockOscLinkService(),
@@ -394,7 +394,6 @@ describe('InputHandler', () => {
         bufferService,
         new MockCharsetService(),
         new MockCoreService(),
-        new MockDirtyRowService(),
         new MockLogService(),
         new MockOptionsService(),
         new MockOscLinkService(),
@@ -445,7 +444,6 @@ describe('InputHandler', () => {
         bufferService,
         new MockCharsetService(),
         new MockCoreService(),
-        new MockDirtyRowService(),
         new MockLogService(),
         new MockOptionsService(),
         new MockOscLinkService(),
@@ -572,7 +570,6 @@ describe('InputHandler', () => {
         new MockBufferService(80, 30),
         new MockCharsetService(),
         new MockCoreService(),
-        new MockDirtyRowService(),
         new MockLogService(),
         new MockOptionsService(),
         new MockOscLinkService(),
@@ -599,7 +596,7 @@ describe('InputHandler', () => {
 
     beforeEach(() => {
       bufferService = new MockBufferService(80, 30);
-      handler = new TestInputHandler(bufferService, new MockCharsetService(), new MockCoreService(), new MockDirtyRowService(), new MockLogService(), new MockOptionsService(), new MockOscLinkService(), new MockCoreMouseService(), new MockUnicodeService());
+      handler = new TestInputHandler(bufferService, new MockCharsetService(), new MockCoreService(), new MockLogService(), new MockOptionsService(), new MockOscLinkService(), new MockCoreMouseService(), new MockUnicodeService());
     });
     it('should handle DECSET/DECRST 47 (alt screen buffer)', async () => {
       await handler.parseP('\x1b[?47h\r\n\x1b[31mJUNK\x1b[?47lTEST');
@@ -796,7 +793,7 @@ describe('InputHandler', () => {
   describe('colon notation', () => {
     let inputHandler2: TestInputHandler;
     beforeEach(() => {
-      inputHandler2 = new TestInputHandler(bufferService, new MockCharsetService(), coreService, new MockDirtyRowService(), new MockLogService(), optionsService, new MockOscLinkService(), new MockCoreMouseService(), new MockUnicodeService());
+      inputHandler2 = new TestInputHandler(bufferService, new MockCharsetService(), coreService, new MockLogService(), optionsService, new MockOscLinkService(), new MockCoreMouseService(), new MockUnicodeService());
     });
     describe('should equal to semicolon', () => {
       it('CSI 38:2::50:100:150 m', async () => {
@@ -1695,6 +1692,37 @@ describe('InputHandler', () => {
     });
   });
 
+  describe('reset text attributes (SGR 0)', () => {
+    it('resets all attributes if there is no url', async () => {
+      await inputHandler.parseP('\x1b[30m\x1b[40m\x1b[4m');
+      assert.notEqual(inputHandler.curAttrData.fg, 0);
+      assert.notEqual(inputHandler.curAttrData.bg, 0);
+      assert.isFalse(inputHandler.curAttrData.extended.isEmpty());
+
+      await inputHandler.parseP('\x1b[m');
+      assert.equal(inputHandler.curAttrData.fg, 0);
+      assert.equal(inputHandler.curAttrData.bg, 0);
+      assert.isTrue(inputHandler.curAttrData.extended.isEmpty());
+    });
+
+    it('resets all attributes except for the url', async () => {
+      await inputHandler.parseP('\x1b[30m\x1b[40m\x1b[4m');
+      await inputHandler.parseP('\x1b]8;;http://example.com\x1b\\');
+      assert.notEqual(inputHandler.curAttrData.fg, 0);
+      assert.notEqual(inputHandler.curAttrData.bg, 0);
+      assert.notEqual(inputHandler.curAttrData.extended.ext, 0);
+      const urlId = inputHandler.curAttrData.extended.urlId;
+      assert.notEqual(urlId, 0);
+
+      await inputHandler.parseP('\x1b[m');
+      assert.equal(inputHandler.curAttrData.fg, 0);
+      assert.equal(inputHandler.curAttrData.bg, BgFlags.HAS_EXTENDED);
+      const expectedExtended = new ExtendedAttrs();
+      expectedExtended.urlId = urlId;
+      assert.deepEqual(inputHandler.curAttrData.extended, expectedExtended);
+    });
+  });
+
   describe('extended underline style support (SGR 4)', () => {
     beforeEach(() => {
       bufferService.resize(10, 5);
@@ -1957,6 +1985,32 @@ describe('InputHandler', () => {
       assert.deepEqual(stack, [[{ type: ColorRequestType.SET, index: 0, color: [170, 187, 204] }, { type: ColorRequestType.SET, index: 123, color: [0, 17, 34] }]]);
       stack.length = 0;
     });
+    it('8: hyperlink with id', async () => {
+      await inputHandler.parseP('\x1b]8;id=100;http://localhost:3000\x07');
+      assert.notStrictEqual(inputHandler.curAttrData.extended.urlId, 0);
+      assert.deepStrictEqual(
+        oscLinkService.getLinkData(inputHandler.curAttrData.extended.urlId),
+        {
+          id: '100',
+          uri: 'http://localhost:3000'
+        }
+      );
+      await inputHandler.parseP('\x1b]8;;\x07');
+      assert.strictEqual(inputHandler.curAttrData.extended.urlId, 0);
+    });
+    it('8: hyperlink with semi-colon', async () => {
+      await inputHandler.parseP('\x1b]8;;http://localhost:3000;abc=def\x07');
+      assert.notStrictEqual(inputHandler.curAttrData.extended.urlId, 0);
+      assert.deepStrictEqual(
+        oscLinkService.getLinkData(inputHandler.curAttrData.extended.urlId),
+        {
+          id: undefined,
+          uri: 'http://localhost:3000;abc=def'
+        }
+      );
+      await inputHandler.parseP('\x1b]8;;\x07');
+      assert.strictEqual(inputHandler.curAttrData.extended.urlId, 0);
+    });
     it('104: restore events', async () => {
       const stack: IColorEvent[] = [];
       inputHandler.onColor(ev => stack.push(ev));
@@ -1977,87 +2031,87 @@ describe('InputHandler', () => {
       inputHandler.onColor(ev => stack.push(ev));
       // single foreground query --> color undefined
       await inputHandler.parseP('\x1b]10;?\x07');
-      assert.deepEqual(stack, [[{ type: ColorRequestType.REPORT, index: ColorIndex.FOREGROUND }]]);
+      assert.deepEqual(stack, [[{ type: ColorRequestType.REPORT, index: SpecialColorIndex.FOREGROUND }]]);
       stack.length = 0;
       // OSC with multiple values maps to OSC 10 & OSC 11 & OSC 12
       await inputHandler.parseP('\x1b]10;?;?;?;?\x07');
-      assert.deepEqual(stack, [[{ type: ColorRequestType.REPORT, index: ColorIndex.FOREGROUND }], [{ type: ColorRequestType.REPORT, index: ColorIndex.BACKGROUND }], [{ type: ColorRequestType.REPORT, index: ColorIndex.CURSOR }]]);
+      assert.deepEqual(stack, [[{ type: ColorRequestType.REPORT, index: SpecialColorIndex.FOREGROUND }], [{ type: ColorRequestType.REPORT, index: SpecialColorIndex.BACKGROUND }], [{ type: ColorRequestType.REPORT, index: SpecialColorIndex.CURSOR }]]);
       stack.length = 0;
       // set foreground color events
       await inputHandler.parseP('\x1b]10;rgb:01/02/03\x07');
-      assert.deepEqual(stack, [[{ type: ColorRequestType.SET, index: ColorIndex.FOREGROUND, color: [1, 2, 3] }]]);
+      assert.deepEqual(stack, [[{ type: ColorRequestType.SET, index: SpecialColorIndex.FOREGROUND, color: [1, 2, 3] }]]);
       stack.length = 0;
       await inputHandler.parseP('\x1b]10;#aabbcc\x07');
-      assert.deepEqual(stack, [[{ type: ColorRequestType.SET, index: ColorIndex.FOREGROUND, color: [170, 187, 204] }]]);
+      assert.deepEqual(stack, [[{ type: ColorRequestType.SET, index: SpecialColorIndex.FOREGROUND, color: [170, 187, 204] }]]);
       stack.length = 0;
       // set FG, BG and cursor color at once
       await inputHandler.parseP('\x1b]10;rgb:aa/bb/cc;#001122;rgb:12/34/56\x07');
       assert.deepEqual(stack, [
-        [{ type: ColorRequestType.SET, index: ColorIndex.FOREGROUND, color: [170, 187, 204] }],
-        [{ type: ColorRequestType.SET, index: ColorIndex.BACKGROUND, color: [0, 17, 34] }],
-        [{ type: ColorRequestType.SET, index: ColorIndex.CURSOR, color: [18, 52, 86] }]
+        [{ type: ColorRequestType.SET, index: SpecialColorIndex.FOREGROUND, color: [170, 187, 204] }],
+        [{ type: ColorRequestType.SET, index: SpecialColorIndex.BACKGROUND, color: [0, 17, 34] }],
+        [{ type: ColorRequestType.SET, index: SpecialColorIndex.CURSOR, color: [18, 52, 86] }]
       ]);
     });
     it('110: restore FG color', async () => {
       const stack: IColorEvent[] = [];
       inputHandler.onColor(ev => stack.push(ev));
       await inputHandler.parseP('\x1b]110\x07');
-      assert.deepEqual(stack, [[{ type: ColorRequestType.RESTORE, index: ColorIndex.FOREGROUND }]]);
+      assert.deepEqual(stack, [[{ type: ColorRequestType.RESTORE, index: SpecialColorIndex.FOREGROUND }]]);
     });
     it('11: BG set & query events', async () => {
       const stack: IColorEvent[] = [];
       inputHandler.onColor(ev => stack.push(ev));
       // single background query --> color undefined
       await inputHandler.parseP('\x1b]11;?\x07');
-      assert.deepEqual(stack, [[{ type: ColorRequestType.REPORT, index: ColorIndex.BACKGROUND }]]);
+      assert.deepEqual(stack, [[{ type: ColorRequestType.REPORT, index: SpecialColorIndex.BACKGROUND }]]);
       stack.length = 0;
       // OSC 11 with multiple values creates only BG and cursor event
       await inputHandler.parseP('\x1b]11;?;?;?;?\x07');
-      assert.deepEqual(stack, [[{ type: ColorRequestType.REPORT, index: ColorIndex.BACKGROUND }], [{ type: ColorRequestType.REPORT, index: ColorIndex.CURSOR }]]);
+      assert.deepEqual(stack, [[{ type: ColorRequestType.REPORT, index: SpecialColorIndex.BACKGROUND }], [{ type: ColorRequestType.REPORT, index: SpecialColorIndex.CURSOR }]]);
       stack.length = 0;
       // set background color events
       await inputHandler.parseP('\x1b]11;rgb:01/02/03\x07');
-      assert.deepEqual(stack, [[{ type: ColorRequestType.SET, index: ColorIndex.BACKGROUND, color: [1, 2, 3] }]]);
+      assert.deepEqual(stack, [[{ type: ColorRequestType.SET, index: SpecialColorIndex.BACKGROUND, color: [1, 2, 3] }]]);
       stack.length = 0;
       await inputHandler.parseP('\x1b]11;#aabbcc\x07');
-      assert.deepEqual(stack, [[{ type: ColorRequestType.SET, index: ColorIndex.BACKGROUND, color: [170, 187, 204] }]]);
+      assert.deepEqual(stack, [[{ type: ColorRequestType.SET, index: SpecialColorIndex.BACKGROUND, color: [170, 187, 204] }]]);
       stack.length = 0;
       // set BG and cursor color at once
       await inputHandler.parseP('\x1b]11;#001122;rgb:12/34/56\x07');
       assert.deepEqual(stack, [
-        [{ type: ColorRequestType.SET, index: ColorIndex.BACKGROUND, color: [0, 17, 34] }],
-        [{ type: ColorRequestType.SET, index: ColorIndex.CURSOR, color: [18, 52, 86] }]
+        [{ type: ColorRequestType.SET, index: SpecialColorIndex.BACKGROUND, color: [0, 17, 34] }],
+        [{ type: ColorRequestType.SET, index: SpecialColorIndex.CURSOR, color: [18, 52, 86] }]
       ]);
     });
     it('111: restore BG color', async () => {
       const stack: IColorEvent[] = [];
       inputHandler.onColor(ev => stack.push(ev));
       await inputHandler.parseP('\x1b]111\x07');
-      assert.deepEqual(stack, [[{ type: ColorRequestType.RESTORE, index: ColorIndex.BACKGROUND }]]);
+      assert.deepEqual(stack, [[{ type: ColorRequestType.RESTORE, index: SpecialColorIndex.BACKGROUND }]]);
     });
     it('12: cursor color set & query events', async () => {
       const stack: IColorEvent[] = [];
       inputHandler.onColor(ev => stack.push(ev));
       // single cursor query --> color undefined
       await inputHandler.parseP('\x1b]12;?\x07');
-      assert.deepEqual(stack, [[{ type: ColorRequestType.REPORT, index: ColorIndex.CURSOR }]]);
+      assert.deepEqual(stack, [[{ type: ColorRequestType.REPORT, index: SpecialColorIndex.CURSOR }]]);
       stack.length = 0;
       // OSC 12 with multiple values creates only cursor event
       await inputHandler.parseP('\x1b]12;?;?;?;?\x07');
-      assert.deepEqual(stack, [[{ type: ColorRequestType.REPORT, index: ColorIndex.CURSOR }]]);
+      assert.deepEqual(stack, [[{ type: ColorRequestType.REPORT, index: SpecialColorIndex.CURSOR }]]);
       stack.length = 0;
       // set cursor color events
       await inputHandler.parseP('\x1b]12;rgb:01/02/03\x07');
-      assert.deepEqual(stack, [[{ type: ColorRequestType.SET, index: ColorIndex.CURSOR, color: [1, 2, 3] }]]);
+      assert.deepEqual(stack, [[{ type: ColorRequestType.SET, index: SpecialColorIndex.CURSOR, color: [1, 2, 3] }]]);
       stack.length = 0;
       await inputHandler.parseP('\x1b]12;#aabbcc\x07');
-      assert.deepEqual(stack, [[{ type: ColorRequestType.SET, index: ColorIndex.CURSOR, color: [170, 187, 204] }]]);
+      assert.deepEqual(stack, [[{ type: ColorRequestType.SET, index: SpecialColorIndex.CURSOR, color: [170, 187, 204] }]]);
     });
     it('112: restore cursor color', async () => {
       const stack: IColorEvent[] = [];
       inputHandler.onColor(ev => stack.push(ev));
       await inputHandler.parseP('\x1b]112\x07');
-      assert.deepEqual(stack, [[{ type: ColorRequestType.RESTORE, index: ColorIndex.CURSOR }]]);
+      assert.deepEqual(stack, [[{ type: ColorRequestType.RESTORE, index: SpecialColorIndex.CURSOR }]]);
     });
   });
 
@@ -2146,6 +2200,122 @@ describe('InputHandler', () => {
       });
     });
   });
+
+  describe('DECSCA and DECSED/DECSEL', () => {
+    it('default is unprotected', async () => {
+      await inputHandler.parseP('some text');
+      await inputHandler.parseP('\x1b[?2K');
+      assert.deepEqual(getLines(bufferService, 2), ['', '']);
+      await inputHandler.parseP('some text');
+      await inputHandler.parseP('\x1b[?2J');
+      assert.deepEqual(getLines(bufferService, 2), ['', '']);
+    });
+    it('DECSCA 1 with DECSEL', async () => {
+      await inputHandler.parseP('###\x1b[1"qlineerase\x1b[0"q***');
+      await inputHandler.parseP('\x1b[?2K');
+      assert.deepEqual(getLines(bufferService, 2), ['   lineerase', '']);
+      // normal EL works as before
+      await inputHandler.parseP('\x1b[2K');
+      assert.deepEqual(getLines(bufferService, 2), ['', '']);
+    });
+    it('DECSCA 1 with DECSED', async () => {
+      await inputHandler.parseP('###\x1b[1"qdisplayerase\x1b[0"q***');
+      await inputHandler.parseP('\x1b[?2J');
+      assert.deepEqual(getLines(bufferService, 2), ['   displayerase', '']);
+      // normal ED works as before
+      await inputHandler.parseP('\x1b[2J');
+      assert.deepEqual(getLines(bufferService, 2), ['', '']);
+    });
+    it('DECRQSS reports correct DECSCA state', async () => {
+      const sendStack: string[] = [];
+      coreService.onData(d => sendStack.push(d));
+      // DCS $ q " q ST
+      await inputHandler.parseP('\x1bP$q"q\x1b\\');
+      // default - DECSCA unset (0 or 2)
+      assert.deepEqual(sendStack.pop(), '\x1bP1$r0"q\x1b\\');
+      // DECSCA 1 - protected set
+      await inputHandler.parseP('###\x1b[1"q');
+      await inputHandler.parseP('\x1bP$q"q\x1b\\');
+      assert.deepEqual(sendStack.pop(), '\x1bP1$r1"q\x1b\\');
+      // DECSCA 2 - protected reset (same as 0)
+      await inputHandler.parseP('###\x1b[2"q');
+      await inputHandler.parseP('\x1bP$q"q\x1b\\');
+      assert.deepEqual(sendStack.pop(), '\x1bP1$r0"q\x1b\\');  // reported as DECSCA 0
+    });
+  });
+  describe('DECRQM', () => {
+    const reportStack: string[] = [];
+    beforeEach(() => {
+      reportStack.length = 0;
+      coreService.onData(data => reportStack.push(data));
+    });
+    it('ANSI 2 (keyboard action mode)', async () => {
+      await inputHandler.parseP('\x1b[2$p');
+      assert.deepEqual(reportStack.pop(), '\x1b[2;4$y');    // always reset
+    });
+    it('ANSI 4 (insert mode)', async () => {
+      await inputHandler.parseP('\x1b[4$p');
+      assert.deepEqual(reportStack.pop(), '\x1b[4;2$y');    // reset by default
+      await inputHandler.parseP('\x1b[4h');
+      await inputHandler.parseP('\x1b[4$p');
+      assert.deepEqual(reportStack.pop(), '\x1b[4;1$y');    // now active
+      await inputHandler.parseP('\x1b[4l');
+      await inputHandler.parseP('\x1b[4$p');
+      assert.deepEqual(reportStack.pop(), '\x1b[4;2$y');    // again reset
+    });
+    it('ANSI 12 (send/receive)', async () => {
+      await inputHandler.parseP('\x1b[12$p');
+      assert.deepEqual(reportStack.pop(), '\x1b[12;3$y');   // always set
+    });
+    it('ANSI 20 (newline mode)', async () => {
+      await inputHandler.parseP('\x1b[20$p');
+      assert.deepEqual(reportStack.pop(), '\x1b[20;2$y');    // reset by default
+      await inputHandler.parseP('\x1b[20h');
+      await inputHandler.parseP('\x1b[20$p');
+      assert.deepEqual(reportStack.pop(), '\x1b[20;1$y');    // now active
+      await inputHandler.parseP('\x1b[20l');
+      await inputHandler.parseP('\x1b[20$p');
+      assert.deepEqual(reportStack.pop(), '\x1b[20;2$y');    // again reset
+    });
+    it('ANSI unknown', async () => {
+      await inputHandler.parseP('\x1b[1234$p');
+      assert.deepEqual(reportStack.pop(), '\x1b[1234;0$y');  // not recognized
+    });
+    it('DEC privates with set/reset semantic', async () => {
+      // initially reset
+      const reset = [1, 6, 9, 12, 45, 66, 1000, 1002, 1003, 1004, 1006, 1016, 47, 1047, 1049, 2004];
+      for (const mode of reset) {
+        await inputHandler.parseP(`\x1b[?${mode}$p`);
+        assert.deepEqual(reportStack.pop(), `\x1b[?${mode};2$y`);   // initial reset
+        await inputHandler.parseP(`\x1b[?${mode}h`);
+        await inputHandler.parseP(`\x1b[?${mode}$p`);
+        assert.deepEqual(reportStack.pop(), `\x1b[?${mode};1$y`);   // now active
+        await inputHandler.parseP(`\x1b[?${mode}l`);
+        await inputHandler.parseP(`\x1b[?${mode}$p`);
+        assert.deepEqual(reportStack.pop(), `\x1b[?${mode};2$y`);   // again reset
+      }
+      // initially set
+      const set = [7, 25];
+      for (const mode of set) {
+        await inputHandler.parseP(`\x1b[?${mode}$p`);
+        assert.deepEqual(reportStack.pop(), `\x1b[?${mode};1$y`);   // initial set
+        await inputHandler.parseP(`\x1b[?${mode}l`);
+        await inputHandler.parseP(`\x1b[?${mode}$p`);
+        assert.deepEqual(reportStack.pop(), `\x1b[?${mode};2$y`);   // now inactive
+        await inputHandler.parseP(`\x1b[?${mode}h`);
+        await inputHandler.parseP(`\x1b[?${mode}$p`);
+        assert.deepEqual(reportStack.pop(), `\x1b[?${mode};1$y`);   // again set
+      }
+    });
+    it('DEC privates perma modes', async () => {
+      // [mode number, state value]
+      const perma = [[3, 0], [8, 3], [67, 4], [1005, 4], [1015, 4], [1048, 1]];
+      for (const [mode, value] of perma) {
+        await inputHandler.parseP(`\x1b[?${mode}$p`);
+        assert.deepEqual(reportStack.pop(), `\x1b[?${mode};${value}$y`);
+      }
+    });
+  });
 });
 
 
@@ -2159,10 +2329,10 @@ describe('InputHandler - async handlers', () => {
     optionsService = new MockOptionsService();
     bufferService = new BufferService(optionsService);
     bufferService.resize(80, 30);
-    coreService = new CoreService(() => { }, bufferService, new MockLogService(), optionsService);
+    coreService = new CoreService(bufferService, new MockLogService(), optionsService);
     coreService.onData(data => { console.log(data); });
 
-    inputHandler = new TestInputHandler(bufferService, new MockCharsetService(), coreService, new MockDirtyRowService(), new MockLogService(), optionsService, new MockOscLinkService(), new MockCoreMouseService(), new MockUnicodeService());
+    inputHandler = new TestInputHandler(bufferService, new MockCharsetService(), coreService, new MockLogService(), optionsService, new MockOscLinkService(), new MockCoreMouseService(), new MockUnicodeService());
   });
 
   it('async CUP with CPR check', async () => {

@@ -3,6 +3,8 @@
  * @license MIT
  */
 
+// @ts-check
+
 const path = require('path');
 
 /**
@@ -10,8 +12,10 @@ const path = require('path');
  * (via `yarn watch` or `yarn prebuild`) which are put into `out/` and webpacks them into a
  * production mode umd library module in `lib/`. The aliases are used fix up the absolute paths
  * output by tsc (because of `baseUrl` and `paths` in `tsconfig.json`.
+ *
+ * @type {import('webpack').Configuration}
  */
-module.exports = {
+const config = {
   entry: './out/browser/public/Terminal.js',
   devtool: 'source-map',
   module: {
@@ -29,13 +33,17 @@ module.exports = {
     extensions: [ '.js' ],
     alias: {
       common: path.resolve('./out/common'),
-      browser: path.resolve('./out/browser')
+      browser: path.resolve('./out/browser'),
+      vs: path.resolve('./out/vs'),
     }
   },
   output: {
     filename: 'xterm.js',
     path: path.resolve('./lib'),
-    libraryTarget: 'umd'
+    libraryTarget: 'umd',
+    // Force usage of globalThis instead of global / self. (This is cross-env compatible)
+    globalObject: 'globalThis',
   },
-  mode: 'production'
+  mode: 'production',
 };
+module.exports = config;

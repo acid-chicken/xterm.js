@@ -3,9 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { addDisposableDomListener } from 'browser/Lifecycle';
-import { IRenderService } from 'browser/services/Services';
-import { Disposable } from 'common/Lifecycle';
+import { ICoreBrowserService, IRenderService } from 'browser/services/Services';
+import { Disposable, toDisposable } from 'vs/base/common/lifecycle';
 import { IBufferService, IDecorationService, IInternalDecoration } from 'common/services/Services';
 
 export class BufferDecorationRenderer extends Disposable {
@@ -19,6 +18,7 @@ export class BufferDecorationRenderer extends Disposable {
   constructor(
     private readonly _screenElement: HTMLElement,
     @IBufferService private readonly _bufferService: IBufferService,
+    @ICoreBrowserService private readonly _coreBrowserService: ICoreBrowserService,
     @IDecorationService private readonly _decorationService: IDecorationService,
     @IRenderService private readonly _renderService: IRenderService
   ) {
@@ -28,23 +28,21 @@ export class BufferDecorationRenderer extends Disposable {
     this._container.classList.add('xterm-decoration-container');
     this._screenElement.appendChild(this._container);
 
-    this.register(this._renderService.onRenderedViewportChange(() => this._queueRefresh()));
-    this.register(this._renderService.onDimensionsChange(() => {
+    this._register(this._renderService.onRenderedViewportChange(() => this._doRefreshDecorations()));
+    this._register(this._renderService.onDimensionsChange(() => {
       this._dimensionsChanged = true;
       this._queueRefresh();
     }));
-    this.register(addDisposableDomListener(window, 'resize', () => this._queueRefresh()));
-    this.register(this._bufferService.buffers.onBufferActivate(() => {
+    this._register(this._coreBrowserService.onDprChange(() => this._queueRefresh()));
+    this._register(this._bufferService.buffers.onBufferActivate(() => {
       this._altBufferIsActive = this._bufferService.buffer === this._bufferService.buffers.alt;
     }));
-    this.register(this._decorationService.onDecorationRegistered(() => this._queueRefresh()));
-    this.register(this._decorationService.onDecorationRemoved(decoration => this._removeDecoration(decoration)));
-  }
-
-  public override dispose(): void {
-    this._container.remove();
-    this._decorationElements.clear();
-    super.dispose();
+    this._register(this._decorationService.onDecorationRegistered(() => this._queueRefresh()));
+    this._register(this._decorationService.onDecorationRemoved(decoration => this._removeDecoration(decoration)));
+    this._register(toDisposable(() => {
+      this._container.remove();
+      this._decorationElements.clear();
+    }));
   }
 
   private _queueRefresh(): void {
@@ -52,12 +50,12 @@ export class BufferDecorationRenderer extends Disposable {
       return;
     }
     this._animationFrame = this._renderService.addRefreshCallback(() => {
-      this.refreshDecorations();
+      this._doRefreshDecorations();
       this._animationFrame = undefined;
     });
   }
 
-  public refreshDecorations(): void {
+  private _doRefreshDecorations(): void {
     for (const decoration of this._decorationService.decorations) {
       this._renderDecoration(decoration);
     }
@@ -72,12 +70,13 @@ export class BufferDecorationRenderer extends Disposable {
   }
 
   private _createElement(decoration: IInternalDecoration): HTMLElement {
-    const element = document.createElement('div');
+    const element = this._coreBrowserService.mainDocument.createElement('div');
     element.classList.add('xterm-decoration');
-    element.style.width = `${Math.round((decoration.options.width || 1) * this._renderService.dimensions.actualCellWidth)}px`;
-    element.style.height = `${(decoration.options.height || 1) * this._renderService.dimensions.actualCellHeight}px`;
-    element.style.top = `${(decoration.marker.line - this._bufferService.buffers.active.ydisp) * this._renderService.dimensions.actualCellHeight}px`;
-    element.style.lineHeight = `${this._renderService.dimensions.actualCellHeight}px`;
+    element.classList.toggle('xterm-decoration-top-layer', decoration?.options?.layer === 'top');
+    element.style.width = `${Math.round((decoration.options.width || 1) * this._renderService.dimensions.css.cell.width)}px`;
+    element.style.height = `${(decoration.options.height || 1) * this._renderService.dimensions.css.cell.height}px`;
+    element.style.top = `${(decoration.marker.line - this._bufferService.buffers.active.ydisp) * this._renderService.dimensions.css.cell.height}px`;
+    element.style.lineHeight = `${this._renderService.dimensions.css.cell.height}px`;
 
     const x = decoration.options.x ?? 0;
     if (x && x > this._bufferService.cols) {
@@ -100,14 +99,22 @@ export class BufferDecorationRenderer extends Disposable {
     } else {
       let element = this._decorationElements.get(decoration);
       if (!element) {
-        decoration.onDispose(() => this._removeDecoration(decoration));
         element = this._createElement(decoration);
         decoration.element = element;
         this._decorationElements.set(decoration, element);
         this._container.appendChild(element);
+        decoration.onDispose(() => {
+          this._decorationElements.delete(decoration);
+          element!.remove();
+        });
       }
-      element.style.top = `${line * this._renderService.dimensions.actualCellHeight}px`;
       element.style.display = this._altBufferIsActive ? 'none' : 'block';
+      if (!this._altBufferIsActive) {
+        element.style.width = `${Math.round((decoration.options.width || 1) * this._renderService.dimensions.css.cell.width)}px`;
+        element.style.height = `${(decoration.options.height || 1) * this._renderService.dimensions.css.cell.height}px`;
+        element.style.top = `${line * this._renderService.dimensions.css.cell.height}px`;
+        element.style.lineHeight = `${this._renderService.dimensions.css.cell.height}px`;
+      }
       decoration.onRenderEmitter.fire(element);
     }
   }
@@ -118,14 +125,15 @@ export class BufferDecorationRenderer extends Disposable {
     }
     const x = decoration.options.x ?? 0;
     if ((decoration.options.anchor || 'left') === 'right') {
-      element.style.right = x ? `${x * this._renderService.dimensions.actualCellWidth}px` : '';
+      element.style.right = x ? `${x * this._renderService.dimensions.css.cell.width}px` : '';
     } else {
-      element.style.left = x ? `${x * this._renderService.dimensions.actualCellWidth}px` : '';
+      element.style.left = x ? `${x * this._renderService.dimensions.css.cell.width}px` : '';
     }
   }
 
   private _removeDecoration(decoration: IInternalDecoration): void {
     this._decorationElements.get(decoration)?.remove();
     this._decorationElements.delete(decoration);
+    decoration.dispose();
   }
 }

@@ -10,8 +10,10 @@ const path = require('path');
  * from tsc (via `yarn watch` or `yarn prebuild`) which are put into `out/` and webpacks them into a
  * production mode umd library module in `lib-headless/`. The aliases are used fix up the absolute
  * paths output by tsc (because of `baseUrl` and `paths` in `tsconfig.json`.
+ *
+ * @type {import('webpack').Configuration}
  */
-module.exports = {
+const config = {
   entry: './out/headless/public/Terminal.js',
   devtool: 'source-map',
   module: {
@@ -29,7 +31,8 @@ module.exports = {
     extensions: [ '.js' ],
     alias: {
       common: path.resolve('./out/common'),
-      headless: path.resolve('./out/headless')
+      headless: path.resolve('./out/headless'),
+      vs: path.resolve('./out/vs')
     }
   },
   output: {
@@ -37,7 +40,10 @@ module.exports = {
     path: path.resolve('./headless/lib-headless'),
     library: {
       type: 'commonjs'
-    }
+    },
+    // Force usage of globalThis instead of global / self. (This is cross-env compatible)
+    globalObject: 'globalThis',
   },
-  mode: 'production'
+  mode: 'production',
 };
+module.exports = config;

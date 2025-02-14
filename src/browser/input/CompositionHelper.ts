@@ -5,6 +5,7 @@
 
 import { IRenderService } from 'browser/services/Services';
 import { IBufferService, ICoreService, IOptionsService } from 'common/services/Services';
+import { C0 } from 'common/data/EscapeSequences';
 
 interface IPosition {
   start: number;
@@ -88,11 +89,12 @@ export class CompositionHelper {
   /**
    * Handles the keydown event, routing any necessary events to the CompositionHelper functions.
    * @param ev The keydown event.
-   * @return Whether the Terminal should continue processing the keydown event.
+   * @returns Whether the Terminal should continue processing the keydown event.
    */
   public keydown(ev: KeyboardEvent): boolean {
     if (this._isComposing || this._isSendingComposition) {
-      if (ev.keyCode === 229) {
+      if (ev.keyCode === 20 || ev.keyCode === 229) {
+        // 20 is CapsLock, 229 is Enter
         // Continue composing if the keyCode is the "composition character"
         return false;
       }
@@ -158,8 +160,9 @@ export class CompositionHelper {
           // otherwise input characters can be duplicated. (Issue #3191)
           currentCompositionPosition.start += this._dataAlreadySent.length;
           if (this._isComposing) {
-            // Use the end position to get the string if a new composition has started.
-            input = this._textarea.value.substring(currentCompositionPosition.start, currentCompositionPosition.end);
+            // Use the start position of the new composition to get the string
+            // if a new composition has started.
+            input = this._textarea.value.substring(currentCompositionPosition.start, this._compositionPosition.start);
           } else {
             // Don't use the end position here in order to pick up any characters after the
             // composition has finished, for example when typing a non-composition character
@@ -186,11 +189,19 @@ export class CompositionHelper {
       // Ignore if a composition has started since the timeout
       if (!this._isComposing) {
         const newValue = this._textarea.value;
+
         const diff = newValue.replace(oldValue, '');
-        if (diff.length > 0) {
-          this._dataAlreadySent = diff;
+
+        this._dataAlreadySent = diff;
+
+        if (newValue.length > oldValue.length) {
           this._coreService.triggerDataEvent(diff, true);
+        } else if (newValue.length < oldValue.length) {
+          this._coreService.triggerDataEvent(`${C0.DEL}`, true);
+        } else if ((newValue.length === oldValue.length) && (newValue !== oldValue)) {
+          this._coreService.triggerDataEvent(newValue, true);
         }
+
       }
     }, 0);
   }
@@ -209,9 +220,9 @@ export class CompositionHelper {
     if (this._bufferService.buffer.isCursorInViewport) {
       const cursorX = Math.min(this._bufferService.buffer.x, this._bufferService.cols - 1);
 
-      const cellHeight = this._renderService.dimensions.actualCellHeight;
-      const cursorTop = this._bufferService.buffer.y * this._renderService.dimensions.actualCellHeight;
-      const cursorLeft = cursorX * this._renderService.dimensions.actualCellWidth;
+      const cellHeight = this._renderService.dimensions.css.cell.height;
+      const cursorTop = this._bufferService.buffer.y * this._renderService.dimensions.css.cell.height;
+      const cursorLeft = cursorX * this._renderService.dimensions.css.cell.width;
 
       this._compositionView.style.left = cursorLeft + 'px';
       this._compositionView.style.top = cursorTop + 'px';

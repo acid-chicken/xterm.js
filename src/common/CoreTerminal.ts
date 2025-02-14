@@ -21,17 +21,14 @@
  *   http://linux.die.net/man/7/urxvt
  */
 
-import { Disposable } from 'common/Lifecycle';
-import { IInstantiationService, IOptionsService, IBufferService, ILogService, ICharsetService, ICoreService, ICoreMouseService, IUnicodeService, IDirtyRowService, LogLevelEnum, ITerminalOptions, IOscLinkService } from 'common/services/Services';
+import { IInstantiationService, IOptionsService, IBufferService, ILogService, ICharsetService, ICoreService, ICoreMouseService, IUnicodeService, LogLevelEnum, ITerminalOptions, IOscLinkService } from 'common/services/Services';
 import { InstantiationService } from 'common/services/InstantiationService';
 import { LogService } from 'common/services/LogService';
 import { BufferService, MINIMUM_COLS, MINIMUM_ROWS } from 'common/services/BufferService';
 import { OptionsService } from 'common/services/OptionsService';
-import { IDisposable, IBufferLine, IAttributeData, ICoreTerminal, IKeyboardEvent, IScrollEvent, ScrollSource, ITerminalOptions as IPublicTerminalOptions } from 'common/Types';
+import { IDisposable, IAttributeData, ICoreTerminal, IScrollEvent } from 'common/Types';
 import { CoreService } from 'common/services/CoreService';
-import { EventEmitter, IEvent, forwardEvent } from 'common/EventEmitter';
 import { CoreMouseService } from 'common/services/CoreMouseService';
-import { DirtyRowService } from 'common/services/DirtyRowService';
 import { UnicodeService } from 'common/services/UnicodeService';
 import { CharsetService } from 'common/services/CharsetService';
 import { updateWindowsModeWrappedState } from 'common/WindowsMode';
@@ -40,6 +37,8 @@ import { IBufferSet } from 'common/buffer/Types';
 import { InputHandler } from 'common/InputHandler';
 import { WriteBuffer } from 'common/input/WriteBuffer';
 import { OscLinkService } from 'common/services/OscLinkService';
+import { Emitter, Event } from 'vs/base/common/event';
+import { Disposable, MutableDisposable, toDisposable } from 'vs/base/common/lifecycle';
 
 // Only trigger this warning a single time per session
 let hasWriteSyncWarnHappened = false;
@@ -49,7 +48,6 @@ export abstract class CoreTerminal extends Disposable implements ICoreTerminal {
   protected readonly _bufferService: IBufferService;
   protected readonly _logService: ILogService;
   protected readonly _charsetService: ICharsetService;
-  protected readonly _dirtyRowService: IDirtyRowService;
   protected readonly _oscLinkService: IOscLinkService;
 
   public readonly coreMouseService: ICoreMouseService;
@@ -59,30 +57,31 @@ export abstract class CoreTerminal extends Disposable implements ICoreTerminal {
 
   protected _inputHandler: InputHandler;
   private _writeBuffer: WriteBuffer;
-  private _windowsMode: IDisposable | undefined;
+  private _windowsWrappingHeuristics = this._register(new MutableDisposable());
 
-  private _onBinary = new EventEmitter<string>();
-  public get onBinary(): IEvent<string> { return this._onBinary.event; }
-  private _onData = new EventEmitter<string>();
-  public get onData(): IEvent<string> { return this._onData.event; }
-  protected _onLineFeed = new EventEmitter<void>();
-  public get onLineFeed(): IEvent<void> { return this._onLineFeed.event; }
-  private _onResize = new EventEmitter<{ cols: number, rows: number }>();
-  public get onResize(): IEvent<{ cols: number, rows: number }> { return this._onResize.event; }
-  protected _onScroll = new EventEmitter<IScrollEvent, void>();
-  public get onWriteParsed(): IEvent<void> { return this._onWriteParsed.event; }
-  protected _onWriteParsed = new EventEmitter<void>();
+  private readonly _onBinary = this._register(new Emitter<string>());
+  public readonly onBinary = this._onBinary.event;
+  private readonly _onData = this._register(new Emitter<string>());
+  public readonly onData = this._onData.event;
+  protected _onLineFeed = this._register(new Emitter<void>());
+  public readonly onLineFeed = this._onLineFeed.event;
+  private readonly _onResize = this._register(new Emitter<{ cols: number, rows: number }>());
+  public readonly onResize = this._onResize.event;
+  protected readonly _onWriteParsed = this._register(new Emitter<void>());
+  public readonly onWriteParsed = this._onWriteParsed.event;
+
   /**
    * Internally we track the source of the scroll but this is meaningless outside the library so
    * it's filtered out.
    */
-  protected _onScrollApi?: EventEmitter<number, void>;
-  public get onScroll(): IEvent<number, void> {
+  protected _onScrollApi?: Emitter<number>;
+  protected _onScroll = this._register(new Emitter<IScrollEvent>());
+  public get onScroll(): Event<number> {
     if (!this._onScrollApi) {
-      this._onScrollApi = new EventEmitter<number, void>();
-      this.register(this._onScroll.event(ev => {
+      this._onScrollApi = this._register(new Emitter<number>());
+      this._onScroll.event(ev => {
         this._onScrollApi?.fire(ev.position);
-      }));
+      });
     }
     return this._onScrollApi.event;
   }
@@ -90,7 +89,7 @@ export abstract class CoreTerminal extends Disposable implements ICoreTerminal {
   public get cols(): number { return this._bufferService.cols; }
   public get rows(): number { return this._bufferService.rows; }
   public get buffers(): IBufferSet { return this._bufferService.buffers; }
-  public get options(): ITerminalOptions { return this.optionsService.options; }
+  public get options(): Required<ITerminalOptions> { return this.optionsService.options; }
   public set options(options: ITerminalOptions) {
     for (const key in options) {
       this.optionsService.options[key] = options[key];
@@ -104,56 +103,43 @@ export abstract class CoreTerminal extends Disposable implements ICoreTerminal {
 
     // Setup and initialize services
     this._instantiationService = new InstantiationService();
-    this.optionsService = new OptionsService(options);
+    this.optionsService = this._register(new OptionsService(options));
     this._instantiationService.setService(IOptionsService, this.optionsService);
-    this._bufferService = this.register(this._instantiationService.createInstance(BufferService));
+    this._bufferService = this._register(this._instantiationService.createInstance(BufferService));
     this._instantiationService.setService(IBufferService, this._bufferService);
-    this._logService = this._instantiationService.createInstance(LogService);
+    this._logService = this._register(this._instantiationService.createInstance(LogService));
     this._instantiationService.setService(ILogService, this._logService);
-    this.coreService = this.register(this._instantiationService.createInstance(CoreService, () => this.scrollToBottom()));
+    this.coreService = this._register(this._instantiationService.createInstance(CoreService));
     this._instantiationService.setService(ICoreService, this.coreService);
-    this.coreMouseService = this._instantiationService.createInstance(CoreMouseService);
+    this.coreMouseService = this._register(this._instantiationService.createInstance(CoreMouseService));
     this._instantiationService.setService(ICoreMouseService, this.coreMouseService);
-    this._dirtyRowService = this._instantiationService.createInstance(DirtyRowService);
-    this._instantiationService.setService(IDirtyRowService, this._dirtyRowService);
-    this.unicodeService = this._instantiationService.createInstance(UnicodeService);
+    this.unicodeService = this._register(this._instantiationService.createInstance(UnicodeService));
     this._instantiationService.setService(IUnicodeService, this.unicodeService);
     this._charsetService = this._instantiationService.createInstance(CharsetService);
     this._instantiationService.setService(ICharsetService, this._charsetService);
     this._oscLinkService = this._instantiationService.createInstance(OscLinkService);
     this._instantiationService.setService(IOscLinkService, this._oscLinkService);
 
+
     // Register input handler and handle/forward events
-    this._inputHandler = new InputHandler(this._bufferService, this._charsetService, this.coreService, this._dirtyRowService, this._logService, this.optionsService, this._oscLinkService, this.coreMouseService, this.unicodeService);
-    this.register(forwardEvent(this._inputHandler.onLineFeed, this._onLineFeed));
-    this.register(this._inputHandler);
+    this._inputHandler = this._register(new InputHandler(this._bufferService, this._charsetService, this.coreService, this._logService, this.optionsService, this._oscLinkService, this.coreMouseService, this.unicodeService));
+    this._register(Event.forward(this._inputHandler.onLineFeed, this._onLineFeed));
+    this._register(this._inputHandler);
 
     // Setup listeners
-    this.register(forwardEvent(this._bufferService.onResize, this._onResize));
-    this.register(forwardEvent(this.coreService.onData, this._onData));
-    this.register(forwardEvent(this.coreService.onBinary, this._onBinary));
-    this.register(this.optionsService.onOptionChange(key => this._updateOptions(key)));
-    this.register(this._bufferService.onScroll(event => {
-      this._onScroll.fire({ position: this._bufferService.buffer.ydisp, source: ScrollSource.TERMINAL });
-      this._dirtyRowService.markRangeDirty(this._bufferService.buffer.scrollTop, this._bufferService.buffer.scrollBottom);
+    this._register(Event.forward(this._bufferService.onResize, this._onResize));
+    this._register(Event.forward(this.coreService.onData, this._onData));
+    this._register(Event.forward(this.coreService.onBinary, this._onBinary));
+    this._register(this.coreService.onRequestScrollToBottom(() => this.scrollToBottom(true)));
+    this._register(this.coreService.onUserInput(() =>  this._writeBuffer.handleUserInput()));
+    this._register(this.optionsService.onMultipleOptionChange(['windowsMode', 'windowsPty'], () => this._handleWindowsPtyOptionChange()));
+    this._register(this._bufferService.onScroll(() => {
+      this._onScroll.fire({ position: this._bufferService.buffer.ydisp });
+      this._inputHandler.markRangeDirty(this._bufferService.buffer.scrollTop, this._bufferService.buffer.scrollBottom);
     }));
-    this.register(this._inputHandler.onScroll(event => {
-      this._onScroll.fire({ position: this._bufferService.buffer.ydisp, source: ScrollSource.TERMINAL });
-      this._dirtyRowService.markRangeDirty(this._bufferService.buffer.scrollTop, this._bufferService.buffer.scrollBottom);
-    }));
-
     // Setup WriteBuffer
-    this._writeBuffer = new WriteBuffer((data, promiseResult) => this._inputHandler.parse(data, promiseResult));
-    this.register(forwardEvent(this._writeBuffer.onWriteParsed, this._onWriteParsed));
-  }
-
-  public dispose(): void {
-    if (this._isDisposed) {
-      return;
-    }
-    super.dispose();
-    this._windowsMode?.dispose();
-    this._windowsMode = undefined;
+    this._writeBuffer = this._register(new WriteBuffer((data, promiseResult) => this._inputHandler.parse(data, promiseResult)));
+    this._register(Event.forward(this._writeBuffer.onWriteParsed, this._onWriteParsed));
   }
 
   public write(data: string | Uint8Array, callback?: () => void): void {
@@ -177,6 +163,10 @@ export abstract class CoreTerminal extends Disposable implements ICoreTerminal {
     this._writeBuffer.writeSync(data, maxSubsequentCalls);
   }
 
+  public input(data: string, wasUserInput: boolean = true): void {
+    this.coreService.triggerDataEvent(data, wasUserInput);
+  }
+
   public resize(x: number, y: number): void {
     if (isNaN(x) || isNaN(y)) {
       return;
@@ -190,6 +180,7 @@ export abstract class CoreTerminal extends Disposable implements ICoreTerminal {
 
   /**
    * Scroll the terminal down 1 row, creating a blank line.
+   * @param eraseAttr The attribute data to use the for blank line.
    * @param isWrapped Whether the new line is wrapped from the previous line.
    */
   public scroll(eraseAttr: IAttributeData, isWrapped: boolean = false): void {
@@ -199,38 +190,31 @@ export abstract class CoreTerminal extends Disposable implements ICoreTerminal {
   /**
    * Scroll the display of the terminal
    * @param disp The number of lines to scroll down (negative scroll up).
-   * @param suppressScrollEvent Don't emit the scroll event as scrollLines. This is used
-   * to avoid unwanted events being handled by the viewport when the event was triggered from the
-   * viewport originally.
+   * @param suppressScrollEvent Don't emit the scroll event as scrollLines. This is used to avoid
+   * unwanted events being handled by the viewport when the event was triggered from the viewport
+   * originally.
    */
-  public scrollLines(disp: number, suppressScrollEvent?: boolean, source?: ScrollSource): void {
-    this._bufferService.scrollLines(disp, suppressScrollEvent, source);
+  public scrollLines(disp: number, suppressScrollEvent?: boolean): void {
+    this._bufferService.scrollLines(disp, suppressScrollEvent);
   }
 
-  /**
-   * Scroll the display of the terminal by a number of pages.
-   * @param pageCount The number of pages to scroll (negative scrolls up).
-   */
   public scrollPages(pageCount: number): void {
-    this._bufferService.scrollPages(pageCount);
+    this.scrollLines(pageCount * (this.rows - 1));
   }
 
-  /**
-   * Scrolls the display of the terminal to the top.
-   */
   public scrollToTop(): void {
-    this._bufferService.scrollToTop();
+    this.scrollLines(-this._bufferService.buffer.ydisp);
   }
 
-  /**
-   * Scrolls the display of the terminal to the bottom.
-   */
-  public scrollToBottom(): void {
-    this._bufferService.scrollToBottom();
+  public scrollToBottom(disableSmoothScroll?: boolean): void {
+    this.scrollLines(this._bufferService.buffer.ybase - this._bufferService.buffer.ydisp);
   }
 
   public scrollToLine(line: number): void {
-    this._bufferService.scrollToLine(line);
+    const scrollAmount = line - this._bufferService.buffer.ydisp;
+    if (scrollAmount !== 0) {
+      this.scrollLines(scrollAmount);
+    }
   }
 
   /** Add handler for ESC escape sequence. See xterm.d.ts for details. */
@@ -254,9 +238,7 @@ export abstract class CoreTerminal extends Disposable implements ICoreTerminal {
   }
 
   protected _setup(): void {
-    if (this.optionsService.rawOptions.windowsMode) {
-      this._enableWindowsMode();
-    }
+    this._handleWindowsPtyOptionChange();
   }
 
   public reset(): void {
@@ -267,38 +249,35 @@ export abstract class CoreTerminal extends Disposable implements ICoreTerminal {
     this.coreMouseService.reset();
   }
 
-  protected _updateOptions(key: string): void {
-    // TODO: These listeners should be owned by individual components
-    switch (key) {
-      case 'scrollback':
-        this.buffers.resize(this.cols, this.rows);
-        break;
-      case 'windowsMode':
-        if (this.optionsService.rawOptions.windowsMode) {
-          this._enableWindowsMode();
-        } else {
-          this._windowsMode?.dispose();
-          this._windowsMode = undefined;
-        }
-        break;
+
+  private _handleWindowsPtyOptionChange(): void {
+    let value = false;
+    const windowsPty = this.optionsService.rawOptions.windowsPty;
+    if (windowsPty && windowsPty.buildNumber !== undefined && windowsPty.buildNumber !== undefined) {
+      value = !!(windowsPty.backend === 'conpty' && windowsPty.buildNumber < 21376);
+    } else if (this.optionsService.rawOptions.windowsMode) {
+      value = true;
+    }
+    if (value) {
+      this._enableWindowsWrappingHeuristics();
+    } else {
+      this._windowsWrappingHeuristics.clear();
     }
   }
 
-  protected _enableWindowsMode(): void {
-    if (!this._windowsMode) {
+  protected _enableWindowsWrappingHeuristics(): void {
+    if (!this._windowsWrappingHeuristics.value) {
       const disposables: IDisposable[] = [];
       disposables.push(this.onLineFeed(updateWindowsModeWrappedState.bind(null, this._bufferService)));
       disposables.push(this.registerCsiHandler({ final: 'H' }, () => {
         updateWindowsModeWrappedState(this._bufferService);
         return false;
       }));
-      this._windowsMode = {
-        dispose: () => {
-          for (const d of disposables) {
-            d.dispose();
-          }
+      this._windowsWrappingHeuristics.value = toDisposable(() => {
+        for (const d of disposables) {
+          d.dispose();
         }
-      };
+      });
     }
   }
 }

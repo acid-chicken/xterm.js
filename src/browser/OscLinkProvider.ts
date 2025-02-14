@@ -3,7 +3,8 @@
  * @license MIT
  */
 
-import { IBufferRange, ILink, ILinkProvider } from 'browser/Types';
+import { IBufferRange, ILink } from 'browser/Types';
+import { ILinkProvider } from 'browser/services/Services';
 import { CellData } from 'common/buffer/CellData';
 import { IBufferService, IOptionsService, IOscLinkService } from 'common/services/Services';
 
@@ -66,14 +67,30 @@ export class OscLinkProvider implements ILinkProvider {
               y
             }
           };
-          // OSC links always use underline and pointer decorations
-          result.push({
-            text,
-            range,
-            activate: (e, text) => (linkHandler ? linkHandler.activate(e, text, range) : defaultActivate(e, text)),
-            hover: (e, text) => linkHandler?.hover?.(e, text, range),
-            leave: (e, text) => linkHandler?.leave?.(e, text, range)
-          });
+
+          let ignoreLink = false;
+          if (!linkHandler?.allowNonHttpProtocols) {
+            try {
+              const parsed = new URL(text);
+              if (!['http:', 'https:'].includes(parsed.protocol)) {
+                ignoreLink = true;
+              }
+            } catch (e) {
+              // Ignore invalid URLs to prevent unexpected behaviors
+              ignoreLink = true;
+            }
+          }
+
+          if (!ignoreLink) {
+            // OSC links always use underline and pointer decorations
+            result.push({
+              text,
+              range,
+              activate: (e, text) => (linkHandler ? linkHandler.activate(e, text, range) : defaultActivate(e, text)),
+              hover: (e, text) => linkHandler?.hover?.(e, text, range),
+              leave: (e, text) => linkHandler?.leave?.(e, text, range)
+            });
+          }
         }
         finishLink = false;
 
@@ -88,13 +105,14 @@ export class OscLinkProvider implements ILinkProvider {
       }
     }
 
-    // TODO: Handle fetching and returning other link ranges to underline other links with the same id
+    // TODO: Handle fetching and returning other link ranges to underline other links with the same
+    //       id
     callback(result);
   }
 }
 
 function defaultActivate(e: MouseEvent, uri: string): void {
-  const answer = confirm(`Do you want to navigate to ${uri}?`);
+  const answer = confirm(`Do you want to navigate to ${uri}?\n\nWARNING: This link could potentially be dangerous`);
   if (answer) {
     const newWindow = window.open();
     if (newWindow) {

@@ -28,6 +28,10 @@ opening an issue, read these pointers.
 - Be polite. Issues with an indignant or belligerent tone tend to be moved to the
   bottom of the pile.
 
+## Answering discussion questions
+
+Issues are only meant to track (likely) feature requests and bugs. We use [GitHub Discussions](https://github.com/xtermjs/xterm.js/discussions) for general Q&A as well as discussing possible features. If you want to help out, many questions get asked over at the [discussions page](https://github.com/xtermjs/xterm.js/discussions) which could use an expert as the core team is often stretched thin.
+
 ## Contributing code
 
 You can find issues to work on by looking at the [help wanted](https://github.com/xtermjs/xterm.js/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) or [good first issue](https://github.com/xtermjs/xterm.js/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) issues. It's a good idea to comment on the issue saying that you're taking it, just in case someone else comes along and you duplicate work. Once you have your issue, here are the steps to contribute:
@@ -56,3 +60,45 @@ By contributing code to xterm.js you:
 ### Test coverage
 
 One area that always needs attention is improving out unit test coverage, you can view the code coverage report on [Azure Pipelines](https://dev.azure.com/xtermjs/xterm.js/_build/latest?definitionId=3) by clicking the Code Coverage tab.
+
+## Testing
+
+### Unit tests
+
+Unit tests are run with `yarn test-unit`:
+
+```sh
+# All unit tests
+yarn test-unit
+
+# Absolute file path
+yarn test-unit out-esbuild/browser/Terminal.test.js
+
+# Filter by wildcard
+yarn test-unit out-esbuild/**/Terminal.test.js
+
+# Specific addon unit tests tests
+yarn test-unit addons/addon-image/out-esbuild/*.test.js
+
+# Multiple files
+yarn test-unit out-esbuild/**/Terminal.test.js out-esbuild/**/InputHandler.test.js
+```
+
+These use mocha to run all `.test.js` files within the esbuild output (`out-esbuild/`).
+
+### Integration tests
+
+Integration tests are run with `yarn test-integration`:
+
+```sh
+# All integration tests
+yarn test-integration
+
+# Core integration tests
+yarn test-integration --suite=core
+
+# Specific addon integration tests
+yarn test-integration --suite=addon-search
+```
+
+These use `@playwright/test` to run all tests within the esbuild test output (`out-esbuild-test/`).

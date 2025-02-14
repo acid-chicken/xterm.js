@@ -5,7 +5,7 @@
 
 import { deepStrictEqual, strictEqual, throws } from 'assert';
 import { Terminal } from 'headless/public/Terminal';
-import { ITerminalOptions } from 'xterm-headless';
+import { ITerminalOptions } from '@xterm/headless';
 
 let term: Terminal;
 
@@ -22,7 +22,7 @@ describe('Headless API Tests', function (): void {
 
   it('Proposed API check', async () => {
     term = new Terminal({ allowProposedApi: false });
-    throws(() => term.buffer, (error) => error.message === 'You must set the allowProposedApi option to true to use proposed API');
+    throws(() => term.markers, (error: any) => error.message === 'You must set the allowProposedApi option to true to use proposed API');
   });
 
   it('write', async () => {
@@ -473,7 +473,7 @@ describe('Headless API Tests', function (): void {
 
   it('dispose', async () => {
     term.dispose();
-    strictEqual((term as any)._core._isDisposed, true);
+    strictEqual((term as any)._core._store.isDisposed, true);
   });
 });
 

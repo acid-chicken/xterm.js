@@ -106,6 +106,21 @@ describe('Keyboard', () => {
     it('should return \\x1b[5B for ctrl+down', () => {
       assert.equal(testEvaluateKeyboardEvent({ ctrlKey: true, keyCode: 40 }).key, '\x1b[1;5B'); // CSI 5 B
     });
+    it('should return \\x08 for ctrl+backspace', () => {
+      assert.equal(testEvaluateKeyboardEvent({ ctrlKey: true, keyCode: 8 }).key, '\x08');
+    });
+    it('should return \\x1b\\x7f for alt+backspace', () => {
+      assert.equal(testEvaluateKeyboardEvent({ altKey: true, keyCode: 8 }).key, '\x1b\x7f');
+    });
+    it('should return \\x1b\\x08 for ctrl+alt+backspace', () => {
+      assert.equal(testEvaluateKeyboardEvent({ ctrlKey: true, altKey: true, keyCode: 8 }).key, '\x1b\x08');
+    });
+    it('should return \\x1b[3;2~ for shift+delete', () => {
+      assert.equal(testEvaluateKeyboardEvent({ shiftKey: true, keyCode: 46 }).key, '\x1b[3;2~');
+    });
+    it('should return \\x1b[3;3~ for alt+delete', () => {
+      assert.equal(testEvaluateKeyboardEvent({ altKey: true, keyCode: 46 }).key, '\x1b[3;3~');
+    });
 
     describe('On non-macOS platforms', () => {
       // Evalueate alt + arrow key movement, which is a feature of terminal emulators but not VT100
@@ -124,6 +139,12 @@ describe('Keyboard', () => {
       });
       it('should return \\x1ba for alt+a', () => {
         assert.equal(testEvaluateKeyboardEvent({ altKey: true, keyCode: 65 }, { isMac: false }).key, '\x1ba');
+      });
+      it('should return \\x1b\\x20 for alt+space', () => {
+        assert.equal(testEvaluateKeyboardEvent({ altKey: true, keyCode: 32 }, { isMac: false }).key, '\x1b\x20');
+      });
+      it('should return \\x1b\\x00 for ctrl+alt+space', () => {
+        assert.equal(testEvaluateKeyboardEvent({ altKey: true, ctrlKey: true, keyCode: 32 }, { isMac: false }).key, '\x1b\x00');
       });
     });
 

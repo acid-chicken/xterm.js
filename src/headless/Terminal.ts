@@ -24,38 +24,21 @@
 import { DEFAULT_ATTR_DATA } from 'common/buffer/BufferLine';
 import { IBuffer } from 'common/buffer/Types';
 import { CoreTerminal } from 'common/CoreTerminal';
-import { EventEmitter, forwardEvent, IEvent } from 'common/EventEmitter';
-import { ITerminalOptions as IInitializedTerminalOptions } from 'common/services/Services';
-import { IMarker, ITerminalOptions, ScrollSource } from 'common/Types';
+import { IMarker, ITerminalOptions } from 'common/Types';
+import { Emitter, Event } from 'vs/base/common/event';
 
 export class Terminal extends CoreTerminal {
-  // TODO: We should remove options once components adopt optionsService
-  public get options(): IInitializedTerminalOptions { return this.optionsService.options; }
+  private readonly _onBell = this._register(new Emitter<void>());
+  public readonly onBell = this._onBell.event;
+  private readonly _onCursorMove = this._register(new Emitter<void>());
+  public readonly onCursorMove = this._onCursorMove.event;
+  private readonly _onTitleChange = this._register(new Emitter<string>());
+  public readonly onTitleChange = this._onTitleChange.event;
+  private readonly _onA11yCharEmitter = this._register(new Emitter<string>());
+  public readonly onA11yChar = this._onA11yCharEmitter.event;
+  private readonly _onA11yTabEmitter = this._register(new Emitter<number>());
+  public readonly onA11yTab = this._onA11yTabEmitter.event;
 
-  private _onBell = new EventEmitter<void>();
-  public get onBell(): IEvent<void> { return this._onBell.event; }
-  private _onCursorMove = new EventEmitter<void>();
-  public get onCursorMove(): IEvent<void> { return this._onCursorMove.event; }
-  private _onTitleChange = new EventEmitter<string>();
-  public get onTitleChange(): IEvent<string> { return this._onTitleChange.event; }
-
-  private _onA11yCharEmitter = new EventEmitter<string>();
-  public get onA11yChar(): IEvent<string> { return this._onA11yCharEmitter.event; }
-  private _onA11yTabEmitter = new EventEmitter<number>();
-  public get onA11yTab(): IEvent<number> { return this._onA11yTabEmitter.event; }
-
-  /**
-   * Creates a new `Terminal` object.
-   *
-   * @param options An object containing a set of options, the available options are:
-   *   - `cursorBlink` (boolean): Whether the terminal cursor blinks
-   *   - `cols` (number): The number of columns of the terminal (horizontal size)
-   *   - `rows` (number): The number of rows of the terminal (vertical size)
-   *
-   * @public
-   * @class Xterm Xterm
-   * @alias module:xterm/src/xterm
-   */
   constructor(
     options: ITerminalOptions = {}
   ) {
@@ -64,20 +47,12 @@ export class Terminal extends CoreTerminal {
     this._setup();
 
     // Setup InputHandler listeners
-    this.register(this._inputHandler.onRequestBell(() => this.bell()));
-    this.register(this._inputHandler.onRequestReset(() => this.reset()));
-    this.register(forwardEvent(this._inputHandler.onCursorMove, this._onCursorMove));
-    this.register(forwardEvent(this._inputHandler.onTitleChange, this._onTitleChange));
-    this.register(forwardEvent(this._inputHandler.onA11yChar, this._onA11yCharEmitter));
-    this.register(forwardEvent(this._inputHandler.onA11yTab, this._onA11yTabEmitter));
-  }
-
-  public dispose(): void {
-    if (this._isDisposed) {
-      return;
-    }
-    super.dispose();
-    this.write = () => { };
+    this._register(this._inputHandler.onRequestBell(() => this.bell()));
+    this._register(this._inputHandler.onRequestReset(() => this.reset()));
+    this._register(Event.forward(this._inputHandler.onCursorMove, this._onCursorMove));
+    this._register(Event.forward(this._inputHandler.onTitleChange, this._onTitleChange));
+    this._register(Event.forward(this._inputHandler.onA11yChar, this._onA11yCharEmitter));
+    this._register(Event.forward(this._inputHandler.onA11yTab, this._onA11yTabEmitter));
   }
 
   /**
@@ -85,15 +60,6 @@ export class Terminal extends CoreTerminal {
    */
   public get buffer(): IBuffer {
     return this.buffers.active;
-  }
-
-  protected _updateOptions(key: string): void {
-    super._updateOptions(key);
-
-    // TODO: These listeners should be owned by individual components
-    switch (key) {
-      case 'tabStopWidth': this.buffers.setupTabStops(); break;
-    }
   }
 
   // TODO: Support paste here?
@@ -113,6 +79,10 @@ export class Terminal extends CoreTerminal {
 
   public bell(): void {
     this._onBell.fire();
+  }
+
+  public input(data: string, wasUserInput: boolean = true): void {
+    this.coreService.triggerDataEvent(data, wasUserInput);
   }
 
   /**
@@ -145,7 +115,7 @@ export class Terminal extends CoreTerminal {
     for (let i = 1; i < this.rows; i++) {
       this.buffer.lines.push(this.buffer.getBlankLine(DEFAULT_ATTR_DATA));
     }
-    this._onScroll.fire({ position: this.buffer.ydisp, source: ScrollSource.TERMINAL });
+    this._onScroll.fire({ position: this.buffer.ydisp });
   }
 
   /**

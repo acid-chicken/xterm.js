@@ -29,7 +29,9 @@ export class ServiceCollection {
   }
 
   public forEach(callback: (id: IServiceIdentifier<any>, instance: any) => any): void {
-    this._entries.forEach((value, key) => callback(key, value));
+    for (const [key, value] of this._entries.entries()) {
+      callback(key, value);
+    }
   }
 
   public has(id: IServiceIdentifier<any>): boolean {
@@ -65,7 +67,7 @@ export class InstantiationService implements IInstantiationService {
     for (const dependency of serviceDependencies) {
       const service = this._services.get(dependency.id);
       if (!service) {
-        throw new Error(`[createInstance] ${ctor.name} depends on UNKNOWN service ${dependency.id}.`);
+        throw new Error(`[createInstance] ${ctor.name} depends on UNKNOWN service ${dependency.id._id}.`);
       }
       serviceArgs.push(service);
     }

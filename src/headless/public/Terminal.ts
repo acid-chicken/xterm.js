@@ -3,29 +3,32 @@
  * @license MIT
  */
 
-import { IEvent } from 'common/EventEmitter';
 import { BufferNamespaceApi } from 'common/public/BufferNamespaceApi';
 import { ParserApi } from 'common/public/ParserApi';
 import { UnicodeApi } from 'common/public/UnicodeApi';
-import { IBufferNamespace as IBufferNamespaceApi, IMarker, IModes, IParser, ITerminalAddon, ITerminalInitOnlyOptions, IUnicodeHandling, Terminal as ITerminalApi } from 'xterm-headless';
+import { IBufferNamespace as IBufferNamespaceApi, IMarker, IModes, IParser, ITerminalAddon, ITerminalInitOnlyOptions, IUnicodeHandling, Terminal as ITerminalApi } from '@xterm/headless';
 import { Terminal as TerminalCore } from 'headless/Terminal';
 import { AddonManager } from 'common/public/AddonManager';
 import { ITerminalOptions } from 'common/Types';
+import { Disposable } from 'vs/base/common/lifecycle';
+import type { Event } from 'vs/base/common/event';
 /**
  * The set of options that only have an effect when set in the Terminal constructor.
  */
 const CONSTRUCTOR_ONLY_OPTIONS = ['cols', 'rows'];
 
-export class Terminal implements ITerminalApi {
+export class Terminal extends Disposable implements ITerminalApi {
   private _core: TerminalCore;
   private _addonManager: AddonManager;
   private _parser: IParser | undefined;
   private _buffer: BufferNamespaceApi | undefined;
-  private _publicOptions: ITerminalOptions;
+  private _publicOptions: Required<ITerminalOptions>;
 
   constructor(options?: ITerminalOptions & ITerminalInitOnlyOptions) {
-    this._core = new TerminalCore(options);
-    this._addonManager = new AddonManager();
+    super();
+
+    this._core = this._register(new TerminalCore(options));
+    this._addonManager = this._register(new AddonManager());
 
     this._publicOptions = { ... this._core.options };
     const getter = (propName: string): any => {
@@ -69,14 +72,15 @@ export class Terminal implements ITerminalApi {
     }
   }
 
-  public get onBell(): IEvent<void> { return this._core.onBell; }
-  public get onBinary(): IEvent<string> { return this._core.onBinary; }
-  public get onCursorMove(): IEvent<void> { return this._core.onCursorMove; }
-  public get onData(): IEvent<string> { return this._core.onData; }
-  public get onLineFeed(): IEvent<void> { return this._core.onLineFeed; }
-  public get onResize(): IEvent<{ cols: number, rows: number }> { return this._core.onResize; }
-  public get onScroll(): IEvent<number> { return this._core.onScroll; }
-  public get onTitleChange(): IEvent<string> { return this._core.onTitleChange; }
+  public get onBell(): Event<void> { return this._core.onBell; }
+  public get onBinary(): Event<string> { return this._core.onBinary; }
+  public get onCursorMove(): Event<void> { return this._core.onCursorMove; }
+  public get onData(): Event<string> { return this._core.onData; }
+  public get onLineFeed(): Event<void> { return this._core.onLineFeed; }
+  public get onResize(): Event<{ cols: number, rows: number }> { return this._core.onResize; }
+  public get onScroll(): Event<number> { return this._core.onScroll; }
+  public get onTitleChange(): Event<string> { return this._core.onTitleChange; }
+  public get onWriteParsed(): Event<void> { return this._core.onWriteParsed; }
 
   public get parser(): IParser {
     this._checkProposedApi();
@@ -94,7 +98,7 @@ export class Terminal implements ITerminalApi {
   public get buffer(): IBufferNamespaceApi {
     this._checkProposedApi();
     if (!this._buffer) {
-      this._buffer = new BufferNamespaceApi(this._core);
+      this._buffer = this._register(new BufferNamespaceApi(this._core));
     }
     return this._buffer;
   }
@@ -123,13 +127,16 @@ export class Terminal implements ITerminalApi {
       wraparoundMode: m.wraparound
     };
   }
-  public get options(): ITerminalOptions {
+  public get options(): Required<ITerminalOptions> {
     return this._publicOptions;
   }
   public set options(options: ITerminalOptions) {
     for (const propName in options) {
       this._publicOptions[propName] = options[propName];
     }
+  }
+  public input(data: string, wasUserInput: boolean = true): void {
+    this._core.input(data, wasUserInput);
   }
   public resize(columns: number, rows: number): void {
     this._verifyIntegers(columns, rows);
@@ -144,8 +151,7 @@ export class Terminal implements ITerminalApi {
     return this.registerMarker(cursorYOffset);
   }
   public dispose(): void {
-    this._addonManager.dispose();
-    this._core.dispose();
+    super.dispose();
   }
   public scrollLines(amount: number): void {
     this._verifyIntegers(amount);
@@ -180,7 +186,7 @@ export class Terminal implements ITerminalApi {
   }
   public loadAddon(addon: ITerminalAddon): void {
     // TODO: This could cause issues if the addon calls renderer apis
-    return this._addonManager.loadAddon(this as any, addon);
+    this._addonManager.loadAddon(this as any, addon);
   }
 
   private _verifyIntegers(...values: number[]): void {
